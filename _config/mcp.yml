@@ -1,0 +1,20 @@
+---
+Name: cmsmcp-pagesections-config
+After:
+  - "cmsmcp-config"
+---
+SilverStripe\Core\Injector\Injector:
+  FLXLabs\CmsMcp\MCP\ToolRegistry:
+    properties:
+      Tools:
+        - '%$FLXLabs\CmsMcpPageSections\Tools\GetPageElementsTool'
+        - '%$FLXLabs\CmsMcpPageSections\Tools\CreatePageElementTool'
+        - '%$FLXLabs\CmsMcpPageSections\Tools\AddPageElementToSectionTool'
+
+FLXLabs\PageSections\PageSection:
+  extensions:
+    - FLXLabs\CmsMcp\Extensions\MCPExposableExtension
+
+FLXLabs\PageSections\PageElement:
+  extensions:
+    - FLXLabs\CmsMcp\Extensions\MCPExposableExtension

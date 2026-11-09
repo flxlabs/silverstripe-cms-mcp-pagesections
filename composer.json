@@ -1,0 +1,43 @@
+{
+    "name": "flxlabs/silverstripe-cms-mcp-pagesections",
+    "type": "silverstripe-vendormodule",
+    "description": "Pagesection tools for silverstripe-cms-mcp",
+    "license": "BSD-3-Clause",
+    "keywords": [
+        "silverstripe",
+        "cms",
+        "mcp",
+        "page elements"
+    ],
+    "authors": [
+        {
+            "name": "FLX Labs"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "silverstripe/cms": "^6",
+        "flxlabs/silverstripe-cms-mcp": "*",
+        "flxlabs/silverstripe-pagesections": "^2",
+        "silverstripe/vendor-plugin": "^3"
+    },
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../silverstripe-cms-mcp"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "FLXLabs\\CmsMcpPagesections\\": "src/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "config": {
+        "allow-plugins": {
+            "composer/installers": true,
+            "silverstripe/vendor-plugin": true
+        }
+    }
+}

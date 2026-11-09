@@ -17,16 +17,10 @@
     "require": {
         "php": "^8.3",
         "silverstripe/cms": "^6",
-        "flxlabs/silverstripe-cms-mcp": "*",
+        "flxlabs/silverstripe-cms-mcp": "~0.1",
         "flxlabs/silverstripe-pagesections": "^2",
         "silverstripe/vendor-plugin": "^3"
     },
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../silverstripe-cms-mcp"
-        }
-    ],
     "autoload": {
         "psr-4": {
             "FLXLabs\\CmsMcpPagesections\\": "src/"

@@ -2,16 +2,12 @@
 
 namespace FLXLabs\CmsMcpPagesections\Tools;
 
-use SilverStripe\ORM\DataObject;
-use SilverStripe\CMS\Model\SiteTree;
 use SilverStripe\Security\Member;
 use SilverStripe\Versioned\Versioned;
-use FLXLabs\PageSections\PageElement;
-use FLXLabs\PageSections\PageSection;
-use FLXLabs\CmsMcp\MCP\AbstractTool;
 use FLXLabs\CmsMcp\MCP\ToolException;
+use FLXLabs\PageSections\PageElement;
 
-class AddPageElementToSectionTool extends AbstractTool
+class AddPageElementToSectionTool extends SectionElementToolBase
 {
     public function getName(): string
     {
@@ -21,11 +17,16 @@ class AddPageElementToSectionTool extends AbstractTool
     public function getDescription(): string
     {
         return 'Add an existing PageElement to a PageSection\'s Elements relation. '
-            . 'Pass the PageSection ID, PageElement ID, and optionally the parent object ID and class. '
-            . 'If "parentId" (and optionally "parentClass") is provided, the element type is validated '
-            . 'against the parent DataObject\'s getAllowedPageElements(sectionName) — disallowed types '
-            . 'are rejected. The element will be added at the end of the section. Writes to the draft '
-            . 'stage only — call publish_record on the parent page to make the change live.';
+            . 'PageSection.Elements is a many_many relation: adding an element does NOT remove it from '
+            . 'other sections — the same element record is shared across every section that references it. '
+            . 'The element is appended at the end of the section\'s sort order. '
+            . 'Target a section either directly via "sectionId", or via "parentId"/"parentClass" (single) '
+            . 'or "parentIds" (batch) with optional "sectionName" — the section is resolved on the parent '
+            . 'and created if it does not exist yet. When a parent is involved, the element type is validated '
+            . 'against the parent\'s getAllowedPageElements(sectionName) — disallowed types are rejected. '
+            . 'In a batch, all targets are validated before any write, so a batch either fully applies or '
+            . 'fully fails. Writes to the draft stage only — call publish_record on the parent page to make '
+            . 'the change live.';
     }
 
     public function getInputSchema(): array
@@ -35,15 +36,23 @@ class AddPageElementToSectionTool extends AbstractTool
             'properties' => [
                 'sectionId' => [
                     'type' => 'integer',
-                    'description' => 'ID of the PageSection to add the element to',
+                    'description' => 'Optional: ID of the PageSection to add the element to. '
+                        . 'If omitted, the section is resolved from "parentId"/"parentIds" + "parentClass" + "sectionName".',
                 ],
                 'elementId' => [
                     'type' => 'integer',
-                    'description' => 'ID of the PageElement to add',
+                    'description' => 'ID of the PageElement to add.',
                 ],
                 'parentId' => [
                     'type' => 'integer',
-                    'description' => 'Optional: ID of the parent DataObject (Page, Vehicle, etc.).',
+                    'description' => 'Optional: ID of the parent DataObject (Page, Vehicle, etc.). '
+                        . 'Used to resolve the section when "sectionId" is omitted, and to validate the element type.',
+                ],
+                'parentIds' => [
+                    'type' => 'array',
+                    'items' => ['type' => 'integer'],
+                    'description' => 'Optional: batch — array of parent DataObject IDs to add the element to. '
+                        . 'Mutually exclusive with "sectionId" and "parentId".',
                 ],
                 'parentClass' => [
                     'type' => 'string',
@@ -52,76 +61,58 @@ class AddPageElementToSectionTool extends AbstractTool
                 ],
                 'sectionName' => [
                     'type' => 'string',
-                    'description' => 'Optional: Name of the section to check against (e.g. "Main", "FooterNav"). '
+                    'description' => 'Optional: Name of the section to resolve/check (e.g. "Main", "FooterNav"). '
                         . 'Defaults to "Main".',
                 ],
             ],
-            'required' => ['sectionId', 'elementId'],
+            'required' => ['elementId'],
         ];
     }
 
     public function call(array $arguments, Member $actingMember): array
     {
-        $sectionId = $this->requireInt($arguments, 'sectionId');
-        $elementId = $this->requireInt($arguments, 'elementId');
-        $parentId = $arguments['parentId'] ?? null;
-        $parentClass = $arguments['parentClass'] ?? SiteTree::class;
-        $sectionName = $arguments['sectionName'] ?? 'Main';
+        $parsed = $this->parseSectionArguments($arguments);
+        $element = $this->getElement($parsed['elementId']);
+        $targets = $this->resolveSections($parsed, true, $actingMember);
 
-        // Validate the section
-        $section = PageSection::get()->byID($sectionId);
-        if (!$section) {
-            throw new ToolException("No PageSection found with id $sectionId");
-        }
-
-        if (!$section->canEdit($actingMember)) {
-            throw new ToolException("Permission denied: cannot edit this PageSection");
-        }
-
-        // Validate the element
-        $element = PageElement::get()->byID($elementId);
-        if (!$element) {
-            throw new ToolException("No PageElement found with id $elementId");
-        }
-
-        // Validate element is allowed on the page (if parentId provided)
-        if ($parentId) {
-            $parentObject = $parentClass::get()->byID((int) $parentId);
-            if (!$parentObject) {
-                throw new ToolException("No {$parentClass} record found with id $parentId");
+        // Validate everything first, so a batch either fully applies or fully fails
+        foreach ($targets as $target) {
+            if (!$target['section']->canEdit($actingMember)) {
+                throw new ToolException('Permission denied: cannot edit PageSection #' . $target['section']->ID);
             }
-            if (!method_exists($parentObject, 'getAllowedPageElements')) {
-                throw new ToolException(
-                    "Class \"{$parentObject->ClassName}\" does not have getAllowedPageElements() method."
-                );
-            }
-            $allowed = $parentObject->getAllowedPageElements($sectionName);
-            if (!in_array($element->ClassName, $allowed, true)) {
-                throw new ToolException(
-                    "\"{$element->ClassName}\" is not allowed in section \"$sectionName\" of this object. "
-                        . 'Allowed element types: ' . implode(', ', $allowed)
-                );
-            }
+            $this->assertElementAllowed($element, $target['parent'], $parsed['sectionName']);
         }
 
-        // Check if already added
-        if ($section->Elements()->byID($elementId)) {
-            return $this->jsonResult([
-                'sectionId' => $sectionId,
-                'elementId' => $elementId,
-                'action' => 'already_exists',
-            ]);
+        $results = [];
+        foreach ($targets as $target) {
+            $section = $target['section'];
+            if ($section->Elements()->byID($element->ID)) {
+                $results[] = $this->targetResult($target, $element, 'already_exists');
+                continue;
+            }
+
+            $section->Elements()->add($element);
+            $section->writeToStage(Versioned::DRAFT);
+            $results[] = $this->targetResult($target, $element, 'added');
         }
 
-        // Add element to section
-        $section->Elements()->add($element);
-        $section->writeToStage(Versioned::DRAFT);
-
+        if (count($results) === 1) {
+            return $this->jsonResult($results[0]);
+        }
         return $this->jsonResult([
-            'sectionId' => $sectionId,
-            'elementId' => $elementId,
-            'elementClass' => $element->ClassName,
-            'action' => 'added',
+            'elementId' => $element->ID,
+            'results' => $results,
         ]);
+    }
+
+    private function targetResult(array $target, PageElement $element, string $action): array
+    {
+        return [
+            'sectionId' => $target['section']->ID,
+            'elementId' => $element->ID,
+            'elementClass' => $element->ClassName,
+            'action' => $action,
+            'parentId' => $target['parent'] ? $target['parent']->ID : null,
+        ];
     }
 }

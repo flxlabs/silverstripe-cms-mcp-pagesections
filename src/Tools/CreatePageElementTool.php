@@ -7,11 +7,10 @@ use SilverStripe\CMS\Model\SiteTree;
 use SilverStripe\Security\Member;
 use SilverStripe\Versioned\Versioned;
 use FLXLabs\CmsMcp\FieldIntrospector;
-use FLXLabs\CmsMcp\MCP\AbstractTool;
 use FLXLabs\CmsMcp\MCP\ToolException;
 use FLXLabs\PageSections\PageElement;
 
-class CreatePageElementTool extends AbstractTool
+class CreatePageElementTool extends SectionElementToolBase
 {
     public function getName(): string
     {
@@ -20,16 +19,16 @@ class CreatePageElementTool extends AbstractTool
 
     public function getDescription(): string
     {
-        return 'Create a new PageElement (e.g. JumboTeaserChapter, TextElement, TeaserElement) '
-            . 'and optionally attach it as a child to an existing parent element. '
-            . 'Pass "parentId" (and optionally "parentClass") to validate the element is allowed — '
-            . 'the tool checks getAllowedPageElements() against the parent DataObject and rejects '
-            . 'disallowed element types. If "parentElementId" is provided, validation is against '
-            . 'that parent element\'s allowed children. Otherwise, validation is against the parent '
-            . 'DataObject (Page, Vehicle, etc.) for the given section. '
-            . 'Writes to the draft stage only — call publish_record on the parent page '
-            . 'to make the change live. For Fluent-localized classes, pass "locale" to create '
-            . 'in a specific locale.';
+        return 'Create a new PageElement (e.g. JumboTeaserChapter, TextElement, TeaserElement) and place it: '
+            . 'as a CHILD of an existing element via "parentElementId" (validated against that parent '
+            . 'element\'s getAllowedPageElements() and attached to its Children relation), or as a ROOT '
+            . 'element of a parent DataObject\'s section via "parentId" + "parentClass" + optional '
+            . '"sectionName" (validated against the parent\'s getAllowedPageElements(sectionName) and added '
+            . 'to the section, which is resolved or created on the parent). With neither parent the element '
+            . 'is created UNPLACED — no section, no parent; use add_page_element_to_section or '
+            . 'add_page_element_as_child to place it afterwards. Writes to the draft stage only — call '
+            . 'publish_record on the root page to make the change live. For Fluent-localized classes, pass '
+            . '"locale" to create in a specific locale.';
     }
 
     public function getInputSchema(): array
@@ -44,7 +43,9 @@ class CreatePageElementTool extends AbstractTool
                 ],
                 'parentId' => [
                     'type' => 'integer',
-                    'description' => 'Optional: ID of the parent DataObject (Page, Vehicle, etc.).',
+                    'description' => 'Optional: ID of the parent DataObject (Page, Vehicle, etc.). The element is '
+                        . 'created and added as a root element of that parent\'s section (section resolved via '
+                        . '"parentClass" + "sectionName", created if missing). Mutually exclusive with "parentElementId".',
                 ],
                 'parentClass' => [
                     'type' => 'string',
@@ -53,10 +54,10 @@ class CreatePageElementTool extends AbstractTool
                 ],
                 'sectionName' => [
                     'type' => 'string',
-                    'description' => 'Optional: Name of the section to check against (e.g. "Main", "FooterNav"). '
+                    'description' => 'Optional: Name of the section on the parent DataObject (e.g. "Main", "FooterNav"). '
                         . 'Defaults to "Main". Only used when parentId is provided without parentElementId.',
                 ],
-                'parentElementId' => ['type' => 'integer', 'description' => 'Optional: ID of the parent PageElement to add this as a child'],
+                'parentElementId' => ['type' => 'integer', 'description' => 'Optional: ID of the parent PageElement to add the new element as a child of'],
                 'locale' => [
                     'type' => 'string',
                     'description' => 'Optional locale code for Fluent-localized classes (e.g. "fr_FR"). '
@@ -88,11 +89,23 @@ class CreatePageElementTool extends AbstractTool
         $sectionName = $arguments['sectionName'] ?? 'Main';
         $parentElementId = $arguments['parentElementId'] ?? null;
 
+        if ($parentId && $parentElementId) {
+            throw new ToolException(
+                'Provide either "parentElementId" (child of an element) or "parentId" (root of a section), not both'
+            );
+        }
+
         if ($parentElementId) {
             // Check against the parent element's allowed children
             $parent = PageElement::get()->byID($parentElementId);
             if (!$parent) {
                 throw new ToolException("No PageElement found with id $parentElementId");
+            }
+            if (!$parent->canView($actingMember)) {
+                throw new ToolException('Permission denied: cannot view parent element #' . $parentElementId);
+            }
+            if (!$parent->canEdit($actingMember)) {
+                throw new ToolException('Permission denied: cannot edit parent element #' . $parentElementId);
             }
             $allowed = $parent->getAllowedPageElements();
             if (!in_array($elementClass, $allowed, true)) {
@@ -107,7 +120,10 @@ class CreatePageElementTool extends AbstractTool
             if (!$parentObject) {
                 throw new ToolException("No {$parentClass} record found with id $parentId");
             }
-            if (!method_exists($parentObject, 'getAllowedPageElements')) {
+            if (!$parentObject->canView($actingMember)) {
+                throw new ToolException("Permission denied: cannot view {$parentClass} #{$parentId}");
+            }
+            if (!$parentObject->hasMethod('getAllowedPageElements')) {
                 throw new ToolException(
                     "Class \"{$parentObject->ClassName}\" does not have getAllowedPageElements() method."
                 );
@@ -121,8 +137,8 @@ class CreatePageElementTool extends AbstractTool
             }
         }
 
-        return $this->withSubsite($subsiteId, function () use ($arguments, $actingMember, $elementClass, $locale, $parentId) {
-            return $this->withLocale($elementClass, $locale, function () use ($arguments, $actingMember, $elementClass, $parentId) {
+        return $this->withSubsite($subsiteId, function () use ($arguments, $actingMember, $elementClass, $locale, $parentId, $parentClass, $sectionName) {
+            return $this->withLocale($elementClass, $locale, function () use ($arguments, $actingMember, $elementClass, $parentId, $parentClass, $sectionName) {
                 if (!singleton($elementClass)->canCreate($actingMember)) {
                     throw new ToolException("Permission denied: cannot create $elementClass");
                 }
@@ -140,8 +156,6 @@ class CreatePageElementTool extends AbstractTool
                     );
                 }
 
-                // Preserve sort order during MCP writes
-
                 // Create the element
                 $element = $elementClass::create();
 
@@ -151,25 +165,47 @@ class CreatePageElementTool extends AbstractTool
 
                 $element->writeToStage(Versioned::DRAFT);
 
-                // Optionally add as child to a parent element
                 $parentElementId = $arguments['parentElementId'] ?? null;
+                $sectionId = null;
+
+                // Optionally attach as a child of a parent element
                 if ($parentElementId) {
                     $parent = PageElement::get()->byID($parentElementId);
                     if (!$parent) {
                         throw new ToolException("No PageElement found with id $parentElementId");
                     }
                     $parent->Children()->Add($element);
-                    // Re-write parent to trigger counter update
-                    if ($parent->hasExtension(Versioned::class)) {
+                    // Re-write parent to trigger counter update (staged classes only)
+                    if ($parent->hasMethod('writeToStage')) {
                         $parent->writeToStage(Versioned::DRAFT);
                     }
+                } elseif ($parentId) {
+                    // Place the new element as a root element of the parent's section
+                    $targets = $this->resolveSections([
+                        'elementId' => 0,
+                        'sectionId' => null,
+                        'parentIds' => [(int) $parentId],
+                        'parentClass' => $parentClass,
+                        'sectionName' => $sectionName,
+                    ], true, $actingMember);
+                    $section = $targets[0]['section'];
+                    if (!$section->canEdit($actingMember)) {
+                        throw new ToolException('Permission denied: cannot edit PageSection #' . $section->ID);
+                    }
+
+                    $section->Elements()->add($element);
+                    $section->writeToStage(Versioned::DRAFT);
+                    $sectionId = $section->ID;
                 }
 
                 return $this->jsonResult([
                     'class' => $elementClass,
                     'id' => $element->ID,
                     'fields' => array_keys($arguments['fields']),
-                    'parentId' => $parentElementId,
+                    'parentElementId' => $parentElementId ? (int) $parentElementId : null,
+                    'parentId' => $parentId ? (int) $parentId : null,
+                    'sectionId' => $sectionId,
+                    'action' => $parentElementId ? 'created_as_child' : ($sectionId ? 'created_in_section' : 'created_unplaced'),
                 ]);
             });
         });

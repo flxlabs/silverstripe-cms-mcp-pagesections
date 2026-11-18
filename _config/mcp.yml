@@ -7,9 +7,15 @@ SilverStripe\Core\Injector\Injector:
   FLXLabs\CmsMcp\MCP\ToolRegistry:
     properties:
       Tools:
-        - '%$FLXLabs\CmsMcpPageSections\Tools\GetPageElementsTool'
-        - '%$FLXLabs\CmsMcpPageSections\Tools\CreatePageElementTool'
-        - '%$FLXLabs\CmsMcpPageSections\Tools\AddPageElementToSectionTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\GetPageElementsTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\CreatePageElementTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\AddPageElementToSectionTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\CopyPageElementToSectionTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\CheckPageElementAllowedTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\RemovePageElementFromSectionTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\AddPageElementAsChildTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\RemovePageElementFromParentTool'
+        - '%$FLXLabs\CmsMcpPagesections\Tools\SetPageElementOrderTool'
 
 FLXLabs\PageSections\PageSection:
   extensions:

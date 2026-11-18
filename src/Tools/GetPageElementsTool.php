@@ -116,7 +116,7 @@ class GetPageElementsTool extends AbstractTool
         }
 
         $children = [];
-        foreach ($element->Children() as $child) {
+        foreach ($element->Children()->Sort('SortOrder') as $child) {
             $children[] = $this->collectElement($child);
         }
 

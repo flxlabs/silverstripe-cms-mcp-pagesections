@@ -76,7 +76,7 @@ class RemovePageElementFromSectionTool extends SectionElementToolBase
 
         // Validate everything first, so a batch either fully applies or fully fails
         foreach ($targets as $target) {
-            if ($target['section'] && !$target['section']->canEdit($actingMember)) {
+            if ($target['section'] && !$this->canEditSection($target['section'], $target['parent'], $actingMember)) {
                 throw new ToolException('Permission denied: cannot edit PageSection #' . $target['section']->ID);
             }
         }

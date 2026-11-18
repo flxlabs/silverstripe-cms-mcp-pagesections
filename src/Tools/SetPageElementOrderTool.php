@@ -102,12 +102,13 @@ class SetPageElementOrderTool extends SectionElementToolBase
             ? (int) $arguments['sectionId']
             : null;
         $extra = [];
+        $sectionOwner = null;
         if ($sectionId !== null) {
             $section = PageSection::get()->byID($sectionId);
             if (!$section) {
                 throw new ToolException("No PageSection found with id $sectionId");
             }
-            if (!$section->canView($actingMember)) {
+            if (!$this->canViewSection($section, $actingMember)) {
                 throw new ToolException('Permission denied: cannot view this PageSection');
             }
         } else {
@@ -139,9 +140,10 @@ class SetPageElementOrderTool extends SectionElementToolBase
                 'parentClass' => $parentClass,
                 'sectionName' => $sectionName,
             ];
+            $sectionOwner = $targets[0]['parent'];
         }
 
-        if (!$section->canEdit($actingMember)) {
+        if (!$this->canEditSection($section, $sectionOwner, $actingMember)) {
             throw new ToolException('Permission denied: cannot edit PageSection #' . $section->ID);
         }
 

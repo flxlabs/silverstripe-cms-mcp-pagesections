@@ -189,7 +189,7 @@ class CreatePageElementTool extends SectionElementToolBase
                         'sectionName' => $sectionName,
                     ], true, $actingMember);
                     $section = $targets[0]['section'];
-                    if (!$section->canEdit($actingMember)) {
+                    if (!$this->canEditSection($section, $targets[0]['parent'], $actingMember)) {
                         throw new ToolException('Permission denied: cannot edit PageSection #' . $section->ID);
                     }
 

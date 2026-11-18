@@ -97,7 +97,7 @@ abstract class SectionElementToolBase extends AbstractTool
             if (!$section) {
                 throw new ToolException("No PageSection found with id {$parsed['sectionId']}");
             }
-            if (!$section->canView($actingMember)) {
+            if (!$this->canViewSection($section, $actingMember)) {
                 throw new ToolException('Permission denied: cannot view this PageSection');
             }
             return [['section' => $section, 'parent' => null]];
@@ -157,6 +157,42 @@ abstract class SectionElementToolBase extends AbstractTool
         }
 
         return $targets;
+    }
+
+    /**
+     * Whether $member may view $section.
+     *
+     * PageSection does not override canView() and inherits the framework
+     * default, which requires the ADMIN permission. In the CMS a section is
+     * always viewed through its owner record (Page, Vehicle, ...), so gate
+     * on the owner's canView() instead — falling back to the section's own
+     * check only when it has no resolvable owner.
+     */
+    protected function canViewSection(PageSection $section, Member $member): bool
+    {
+        $owner = $section->Parent();
+        if ($owner !== null) {
+            return $owner->canView($member);
+        }
+        return $section->canView($member);
+    }
+
+    /**
+     * Whether $member may edit $section (same rationale as canViewSection()).
+     *
+     * Pass $owner (the parent DataObject) when it is already known from a
+     * parent-based target; for a bare "sectionId" target it is resolved
+     * from the section.
+     */
+    protected function canEditSection(PageSection $section, ?DataObject $owner, Member $member): bool
+    {
+        if ($owner === null) {
+            $owner = $section->Parent();
+        }
+        if ($owner !== null) {
+            return $owner->canEdit($member);
+        }
+        return $section->canEdit($member);
     }
 
     /**
